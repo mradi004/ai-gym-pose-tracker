@@ -1,0 +1,87 @@
+{
+  "app_title": "AI Gym Posture Analyzer",
+  "start_analysis": "Start Analysis",
+  "stop_workout": "Stop Workout",
+  "analysis_subtitle": "Get instant, AI-powered feedback on your exercise form. Click start to begin your analysis.",
+  "reps": "REPS",
+  "form": "FORM",
+  "accuracy": "ACCURACY",
+  "exercise": "EXERCISE",
+  "stats": "Workout Stats",
+  "detecting": "Detecting...",
+  "good_form": "Good Form",
+  "good_depth": "Good Depth",
+  "go_deeper": "Go Deeper",
+  "keep_chest_up": "Keep Chest Up",
+  "keep_back_straight": "Keep Back Straight",
+  "stop_swinging": "Stop Swinging Shoulders",
+  "bad_form": "Bad Form",
+  "lock_out_arms": "Lock Out Arms",
+  "keep_forearms_vertical": "Keep Forearms Vertical",
+  "keep_elbows_in": "Keep Elbows In",
+  "lower_hips": "Lower Hips",
+  "dont_sag_back": "Don't Sag Back",
+  "keep_arms_close": "Keep Arms Close",
+
+  "save_session_title": "Save Your Session?",
+  "discard_session": "Discard Session",
+  "save_session": "Save Session",
+
+  "signup": "Sign Up to save your Progress!",
+  "fitness_coach": "Are you a beginner? Not sure what to do? Try our AI-Fitness Coach and get personalised workout recommendations.",
+  "fitness_btn": "AI Fitness Coach",
+
+
+   "landing_title": "WELCOME TO FORM AI",
+   "landing_subtitle": "Can't afford a personal trainer? No worries, we've got you covered! Our AI-powered personal trainer is here to help you achieve your fitness goals with personalized workout plans, real-time feedback on your form, and progress tracking.",
+   "landing_subtitle1": "Analyze A Wide Range Of Exercises",
+   "landing_subtitle2": "How It Works",
+   "howitworks1": "Choose Your Workout",
+   "howitworks1.1": "Select an exercise to analyze.",
+   "howitworks2": "Start Your Webcam",
+   "howitworks2.2": "Enable your camera to begin tracking.",
+   "howitworks3": "Get Instant Feedback",
+   "howitworks3.3": "See live tips and accuracy for each rep.",
+   "trynow": "Try Now!",
+
+   "navbar_login": "Login",
+   "navbar_signup": "Sign Up",
+   "navbar_home": "Home",
+
+   "login_heading": "Log In to FormAI",
+   "register_heading": "Register for FormAI",
+   "login_subtitle1": "Enter your Username",
+   "login_subtitle2": "Enter your Password",
+   "login_age": "Enter you Age",
+   "login_height": "Enter your Height in cm",
+   "login_weight": "Enter your Weight in kg",
+   "login_button": "Log In",
+   "register_button": "Register",
+   "login_back": "Back to Home",
+   "login_change1": "Already have an account?",
+   "login_change2": "Don't have an account?",
+   
+   "settings": "Settings",
+   "save": "Save",
+   "edit_profile": "Edit Profile",
+
+
+
+
+   "sidebar1":"Start Workout",
+   "sidebar2":"Overview",
+   "sidebar3":"Workout History",
+   "sidebar4":"Settings",
+   "sidebar5":"Progress Trends",
+   "logout":"Logout",
+
+   "dash_title": "Welcome,",
+   "dash_subtitle": "User Data",
+   "dash_age": "Age:",
+   "dash_height": "Height:",
+   "dash_weight": "Weight:",
+   "dash_bmi": "BMI:",
+   "dash_button": "Start a Workout Session!",
+
+  "voice_lang_code": "en-US"
+}

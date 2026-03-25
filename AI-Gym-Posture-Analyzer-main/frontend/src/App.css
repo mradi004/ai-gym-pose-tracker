@@ -1,0 +1,8 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&family=Orbitron:wght@400..900&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+    --font-heading: "Orbitron", sans-serif;
+}

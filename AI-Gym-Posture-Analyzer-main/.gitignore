@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pyc
+
+models/*.csv
+
+.env
+.env.local
