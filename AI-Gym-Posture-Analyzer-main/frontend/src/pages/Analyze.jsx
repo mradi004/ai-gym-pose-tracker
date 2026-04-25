@@ -3,6 +3,7 @@ import Navbar from "../components/ui/Navbar";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext";
+import AIFitnessCoach from "../components/AIFitnesscoach";
 
 function Analyze() {
   const [liveVideo, setLiveVideo] = useState(false);
@@ -22,6 +23,7 @@ function Analyze() {
   const lastSpokenMessage = useRef(null);
   const currentExerciseData = useRef({ name: null, startTime: null, reps: 0, accuracySum: 0, frameCount: 0 });
   const { t, language } = useLanguage();
+  const [showCoach, setShowCoach] = useState(false);
   
 
   // --- No changes to your useEffect logic ---
@@ -305,7 +307,12 @@ function Analyze() {
             </button>}
             <div>
               <h3 className="text-xl font-medium max-w-xl">{t('fitness_coach')}</h3>
-              <button className="hover:scale-[1.03] rounded-lg transition-all duration-200 shadow-lg text-white hover:shadow-xl px-8 py-3 m-2 text-lg font-bold bg-blue-300 hover:cursor-pointer"><a target="_blank" href="">{t('fitness_btn')}</a></button>
+              <button
+  onClick={() => setShowCoach(!showCoach)}
+  className="hover:scale-[1.03] rounded-lg transition-all duration-200 shadow-lg text-white hover:shadow-xl px-8 py-3 m-2 text-lg font-bold bg-blue-300 hover:cursor-pointer"
+>
+  {t('fitness_btn')}
+</button>
             </div>
           </div>
         ) : (
@@ -397,6 +404,7 @@ function Analyze() {
           </div>
                 </div>
         )}
+        {showCoach && <AIFitnessCoach />}
       </main>
     </div>
   );

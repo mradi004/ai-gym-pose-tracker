@@ -62,7 +62,7 @@ function Hero() {
       <div className="flex md:w-300  flex-col md:flex-row items-center md:justify-between justify-center md:flex-row md:justify-center md:items-start  ">
         <div className="md:flex bg-white z-1 md:flex-col items-center justify-center">
           <div className="">
-            <VideoWithMuteButton videoSrc={'./demoVideo2.0.mp4'} />
+            <VideoWithMuteButton videoSrc={'./demo.mp4'} />
           </div>
           <p className="text-gray-400 text-md italic md:text-2xl text-center md:ml-14">Demo Video</p>
         </div>

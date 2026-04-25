@@ -3,18 +3,19 @@ from flask import Flask, Response, stream_with_context, jsonify, request
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import cv2
 import mediapipe as mp
 import json
 import time
 import importlib
 import os
+import threading
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from chatbot import chatbot_bp
 
 # Load environment variables from .env file
 load_dotenv()
@@ -25,11 +26,15 @@ from auth import token_required
 from db import mongo
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, supports_credentials=True)
 bcrypt = Bcrypt(app)
 
+# FIX 1: Removed url_prefix="/api" to avoid double /api/api/chat route.
+# Your chatbot.py already defines the route as /api/chat,
+# so registering with url_prefix="/api" was making it /api/api/chat.
+app.register_blueprint(chatbot_bp)
+
 # --- Configuration for Database and JWT ---
-# Reads the MONGO_URI and SECRET_KEY from your .env file
 app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 
@@ -44,6 +49,9 @@ cap = None
 active_exercise = None
 corrector = None
 latest_data = {"reps": 0, "form": "N/A", "accuracy": 0}
+
+# FIX 2: Thread lock to protect shared global state from race conditions
+data_lock = threading.Lock()
 
 EXERCISE_MAP = {
     "squats": ("logic.squat_logic", "SquatCorrector"),
@@ -69,12 +77,23 @@ def register():
     if mongo.db.users.find_one({'username': username}):
         return jsonify({'message': 'User already exists'}), 409
 
-    heightInMeter = (int(height)/100)
-    bmi = int(weight)/(heightInMeter*heightInMeter)
+    heightInMeter = (int(height) / 100)
+    bmi = int(weight) / (heightInMeter * heightInMeter)
 
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-    mongo.db.users.insert_one({'username': username, 'password': hashed_password, 'created_at': datetime.utcnow(), 'age':age,'height':height,'weight':weight,'bmi':bmi})
+
+    # FIX 3: Replaced deprecated datetime.utcnow() with datetime.now(timezone.utc)
+    mongo.db.users.insert_one({
+        'username': username,
+        'password': hashed_password,
+        'created_at': datetime.now(timezone.utc),
+        'age': age,
+        'height': height,
+        'weight': weight,
+        'bmi': bmi
+    })
     return jsonify({'message': 'User registered successfully'}), 201
+
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -87,47 +106,44 @@ def login():
     if not user or not bcrypt.check_password_hash(user['password'], password):
         return jsonify({'message': 'Invalid username or password'}), 401
 
+    # FIX 3: Replaced deprecated datetime.utcnow() with datetime.now(timezone.utc)
     token = jwt.encode({
         'sub': user['username'],
-        'iat': datetime.utcnow(),
-        'exp': datetime.utcnow() + timedelta(hours=24)
+        'iat': datetime.now(timezone.utc),
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
     }, app.config['SECRET_KEY'], algorithm="HS256")
 
     return jsonify({'token': token})
 
+
 @app.route('/profile', methods=['GET'])
 @token_required
 def get_profile(current_user):
-    # This is an example of a protected route
-    # print('user_data:',current_user)
     if 'created_at' in current_user and isinstance(current_user['created_at'], datetime):
         current_user['created_at'] = current_user['created_at'].isoformat()
 
-    # Convert the nested 'start_time' and 'end_time' fields in the sessions array
     if 'sessions' in current_user and isinstance(current_user['sessions'], list):
         for session in current_user['sessions']:
             if 'start_time' in session and isinstance(session['start_time'], datetime):
                 session['start_time'] = session['start_time'].isoformat()
             if 'end_time' in session and isinstance(session['end_time'], datetime):
                 session['end_time'] = session['end_time'].isoformat()
+
     return jsonify({
         'message': f'Welcome {current_user["username"]}!',
         'user_data': current_user
     })
 
-# In app.py
 
 @app.route('/update_profile', methods=['POST'])
 @token_required
 def update_profile(current_user):
     data = request.get_json()
-    
-    # Get new values (or keep old ones if not provided)
+
     new_age = data.get('age', current_user.get('age'))
     new_height = data.get('height', current_user.get('height'))
     new_weight = data.get('weight', current_user.get('weight'))
 
-    # Basic validation
     try:
         new_age = int(new_age)
         new_height = float(new_height)
@@ -135,16 +151,14 @@ def update_profile(current_user):
     except (ValueError, TypeError):
         return jsonify({'message': 'Invalid input data types'}), 400
 
-    # Recalculate BMI
     new_bmi = None
     try:
         height_m = new_height / 100
         if height_m > 0:
             new_bmi = float(new_weight) / (height_m ** 2)
     except Exception:
-        new_bmi = current_user.get('bmi') # Fallback
+        new_bmi = current_user.get('bmi')
 
-    # Update MongoDB
     try:
         mongo.db.users.update_one(
             {'username': current_user['username']},
@@ -160,33 +174,31 @@ def update_profile(current_user):
         print(f"Error updating profile: {e}")
         return jsonify({'message': 'Database error'}), 500
 
+
 @app.route('/save_session', methods=['POST'])
 @token_required
 def save_session(current_user):
     data = request.get_json()
-    
+
     start_time_str = data.get('startTime')
     end_time_str = data.get('endTime')
-    exercises_performed = data.get('exercises') # Expecting an array of objects
+    exercises_performed = data.get('exercises')
     session_name = data.get('sessionName')
 
-
-    # --- Validation ---
     if not start_time_str or not end_time_str or not isinstance(exercises_performed, list) or not exercises_performed:
         return jsonify({'message': 'Missing or invalid session data (startTime, endTime, exercises array)'}), 400
 
-    # Validate exercises array structure (basic check)
+    # FIX 4: Moved total_session_reps check OUTSIDE the for loop.
+    # Previously it was inside the loop, so it ran on every iteration incorrectly.
     for ex in exercises_performed:
         if not all(k in ex for k in ('exercise_name', 'reps', 'avg_accuracy', 'duration_seconds')):
             return jsonify({'message': 'Invalid structure in exercises array'}), 400
-        total_session_reps = sum(ex.get('reps', 0) for ex in exercises_performed)
-    
-        if total_session_reps == 0:
-            return jsonify({'message': 'No reps were performed, session not saved.'}), 400
 
-    # --- Convert Timestamps ---
+    total_session_reps = sum(ex.get('reps', 0) for ex in exercises_performed)
+    if total_session_reps == 0:
+        return jsonify({'message': 'No reps were performed, session not saved.'}), 400
+
     try:
-        # Parse ISO strings sent from frontend (handle potential timezone issues)
         start_time_utc = datetime.fromisoformat(start_time_str.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
         end_time_utc = datetime.fromisoformat(end_time_str.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
         local_tz = ZoneInfo("Asia/Kolkata")
@@ -196,7 +208,6 @@ def save_session(current_user):
         print(f"Timestamp parsing error: {e}")
         return jsonify({'message': 'Invalid startTime or endTime format (ISO 8601 expected)'}), 400
 
-    # --- Create the Session Document ---
     session_document = {
         "start_time": start_time,
         "end_time": end_time,
@@ -204,34 +215,35 @@ def save_session(current_user):
         "session_name": session_name,
     }
 
-    # --- Update MongoDB ---
     try:
-        # Push the entire session object into the 'sessions' array for the user
         result = mongo.db.users.update_one(
             {'username': current_user['username']},
-            { '$push': {'sessions': session_document} }
+            {'$push': {'sessions': session_document}}
         )
 
         if result.matched_count == 1:
-            # Check if the document was actually modified (it should be if matched_count is 1)
-             if result.modified_count == 1 or result.upserted_id is not None:
+            if result.modified_count == 1 or result.upserted_id is not None:
                 return jsonify({'message': 'Workout session saved successfully'}), 200
-             else:
-                 # This might happen if $push fails for some reason, though unlikely
-                 print(f"Session save failed for user {current_user['username']} despite match.")
-                 return jsonify({'message': 'Failed to modify user document'}), 500
+            else:
+                print(f"Session save failed for user {current_user['username']} despite match.")
+                return jsonify({'message': 'Failed to modify user document'}), 500
         else:
             return jsonify({'message': 'User not found'}), 404
-            
+
     except Exception as e:
         print(f"Error saving session for user {current_user['username']}: {e}")
         return jsonify({'message': 'Error saving workout session'}), 500
+
 
 ALL_LANDMARKS_INDICES = list(range(33))
 classifier_column_names = []
 for idx in ALL_LANDMARKS_INDICES:
     name = mp_pose.PoseLandmark(idx).name
-    classifier_column_names.extend([f'{name.lower()}_x', f'{name.lower()}_y', f'{name.lower()}_z', f'{name.lower()}_visibility'])
+    classifier_column_names.extend([
+        f'{name.lower()}_x', f'{name.lower()}_y',
+        f'{name.lower()}_z', f'{name.lower()}_visibility'
+    ])
+
 
 def video_generator():
     global cap, latest_data, corrector, active_exercise, models, label_encoder
@@ -239,12 +251,13 @@ def video_generator():
 
     last_predicted_exercise = None
     prediction_streak = 0
-    STABILITY_THRESHOLD = 10 # You can adjust this
+    STABILITY_THRESHOLD = 10
 
     with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         while cap and cap.isOpened():
             ret, frame = cap.read()
-            if not ret: break
+            if not ret:
+                break
 
             image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = pose.process(image_rgb)
@@ -254,7 +267,6 @@ def video_generator():
             if results.pose_landmarks:
                 landmarks = results.pose_landmarks.landmark
 
-                # --- 1. Run Exercise Classifier ---
                 classifier_model = models.get('classifier')
                 if classifier_model and label_encoder:
                     try:
@@ -263,28 +275,11 @@ def video_generator():
                             lm = landmarks[idx]
                             row.extend([lm.x, lm.y, lm.z, lm.visibility])
                         X = pd.DataFrame([row], columns=classifier_column_names)
-
-                        # Predict the number (e.g., 2)
                         prediction_encoded = classifier_model.predict(X)[0]
-
-                        # --- FIX: Calculate probabilities BEFORE trying to print them ---
-                        prediction_proba = classifier_model.predict_proba(X)[0]
-
-                        # Decode the number back to a string (e.g., 2 -> 'shoulderpress')
                         detected_exercise_str = label_encoder.inverse_transform([prediction_encoded])[0]
-
-                        # --- DEBUG PRINTS (Now working correctly) ---
-                        # print("-" * 20)
-                        # print(f"Raw Prediction: {detected_exercise_str} (Index: {prediction_encoded})")
-                        # all_probs = {label_encoder.inverse_transform([i])[0]: f"{prob:.2f}" for i, prob in enumerate(prediction_proba)}
-                        # print(f"Probabilities: {all_probs}")
-                        # --- END DEBUG ---
-
                     except Exception as e:
-                        print(f"Classifier error: {e}") # Keep this active
-                        pass
+                        print(f"Classifier error: {e}")
 
-                # --- Stability Logic (uses detected_exercise_str) ---
                 if detected_exercise_str:
                     if detected_exercise_str == last_predicted_exercise:
                         prediction_streak += 1
@@ -302,7 +297,9 @@ def video_generator():
                                     CorrectorClass = getattr(ExerciseModule, class_name)
                                     corrector = CorrectorClass()
                                     print(f"--- Switched to Exercise: {active_exercise} ---")
-                                    latest_data = {"reps": 0, "form": "N/A", "accuracy": 0}
+                                    # FIX 2: Use lock when writing to latest_data
+                                    with data_lock:
+                                        latest_data = {"reps": 0, "form": "N/A", "accuracy": 0}
                                 except Exception as e:
                                     print(f"Error switching corrector: {e}")
                                     corrector = None
@@ -312,48 +309,60 @@ def video_generator():
                 else:
                     prediction_streak = 0
                     last_predicted_exercise = None
-                    # active_exercise = None # Optional reset
-                    # corrector = None       # Optional reset
 
-
-                # --- 2. Run Form Analysis ---
                 if corrector and active_exercise:
                     try:
                         reps, form, acc = corrector.analyze_form(landmarks, models.get(active_exercise))
-                        latest_data = {"reps": reps, "form": form, "accuracy": acc, "exercise": active_exercise}
+                        # FIX 2: Use lock when writing to latest_data
+                        with data_lock:
+                            latest_data = {"reps": reps, "form": form, "accuracy": acc, "exercise": active_exercise}
                     except Exception as e:
-                        print(f"Analysis error for {active_exercise}: {e}") # Keep this active too
-                        pass
+                        print(f"Analysis error for {active_exercise}: {e}")
                 else:
-                    latest_data = {"reps": 0, "form": "Waiting...", "accuracy": 0, "exercise": "Detecting..."}
+                    with data_lock:
+                        latest_data = {"reps": 0, "form": "Waiting...", "accuracy": 0, "exercise": "Detecting..."}
 
-            # --- Draw landmarks and yield frame ---
             mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
             _, buffer = cv2.imencode('.jpg', frame)
             frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-    if cap: cap.release()
+
+    # FIX 5: Properly release the camera instead of just setting cap = None
+    if cap:
+        cap.release()
+        cap = None
+
 
 def data_generator():
     while True:
-        yield f"data:{json.dumps(latest_data)}\n\n"
+        # FIX 2: Use lock when reading latest_data
+        with data_lock:
+            current_data = latest_data.copy()
+        yield f"data:{json.dumps(current_data)}\n\n"
         time.sleep(0.1)
+
 
 @app.route('/video')
 def video():
     return Response(stream_with_context(video_generator()), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
 @app.route('/data')
 def data():
     return Response(data_generator(), mimetype='text/event-stream')
 
+
 @app.route('/stop', methods=['POST'])
 def stop():
     global cap, corrector, active_exercise
-    if cap is not None: cap = None
+    # FIX 5: Properly release the camera on stop
+    if cap is not None:
+        cap.release()
+        cap = None
     corrector = None
     active_exercise = None
     return jsonify({"status": "session stopped"}), 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, threaded=True, debug=True, use_reloader=False)
